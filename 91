@@ -1,0 +1,237 @@
+-- === Guts & Blackpowder 全自动猎杀系统 v1.0 === --
+-- 作者：你的鲨鱼助手
+-- 功能：全自动射击、近战、Aimbot、透视
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local Camera = Workspace.CurrentCamera
+local UserInputService = game:GetService("UserInputService")
+
+-- === 配置参数 === --
+local AUTO_FARM_RANGE = 15 -- 自动攻击范围（格）
+local AUTO_FIRE_DELAY = 0.1 -- 射击间隔（秒），越小越快
+local ENABLE_AIMBOT = true -- 是否启用自动瞄准
+local AIMBOT_FOV = 2 -- 自动瞄准范围（数值越小越准）
+local TOGGLE_KEY = Enum.KeyCode.F -- 切换全自动的按键
+
+-- === 状态变量 === --
+local isAutoFarming = false
+local autoFarmingConnection = nil
+local zombieTags = {}
+local lastFireTime = 0
+
+-- === 创建开关按钮 === --
+local function createToggleButton()
+    local button = Instance.new("TextButton")
+    button.Name = "AutoFarmToggle"
+    button.Size = UDim2.new(0, 150, 0, 30)
+    button.Position = UDim2.new(0, 10, 0, 10)
+    button.Text = "全自动猎杀: 关闭"
+    button.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 14
+    button.ZIndex = 10
+    button.Parent = Camera
+
+    button.MouseButton1Click:Connect(function()
+        isAutoFarming = not isAutoFarming
+        button.Text = "全自动猎杀: " .. (isAutoFarming and "开启" or "关闭")
+        button.BackgroundColor3 = isAutoFarming and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+        
+        if isAutoFarming then
+            startAutoFarming()
+        else
+            stopAutoFarming()
+        end
+    end)
+
+    return button
+end
+
+-- === 按键切换 === --
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == TOGGLE_KEY then
+        isAutoFarming = not isAutoFarming
+        toggleButton.Text = "全自动猎杀: " .. (isAutoFarming and "开启" or "关闭")
+        toggleButton.BackgroundColor3 = isAutoFarming and Color3.fromRGB(50, 200, 50) or Color3.fromRGB(200, 50, 50)
+        
+        if isAutoFarming then
+            startAutoFarming()
+        else
+            stopAutoFarming()
+        end
+    end
+end)
+
+-- === 获取武器 === --
+local function getWeapon()
+    local char = player.Character
+    if not char then return nil end
+    
+    local backpack = player.Backpack
+    local weapon = char:FindFirstChildWhichIsA("Tool") or backpack:FindFirstChildWhichIsA("Tool")
+    return weapon
+end
+
+-- === 获取僵尸列表 === --
+local function getZombies()
+    local zombies = {}
+    local zombieFolder = Workspace:FindFirstChild("Zombies")
+    if not zombieFolder then return zombies end
+    
+    for _, model in pairs(zombieFolder:GetChildren()) do
+        if model:IsA("Model") and model:FindFirstChild("HumanoidRootPart") then
+            table.insert(zombies, model)
+        end
+    end
+    return zombies
+end
+
+-- === 自动瞄准（Aimbot） === --
+local function aimAt(targetPart)
+    if not ENABLE_AIMBOT or not targetPart then return end
+    local screenPos, onScreen = Camera:WorldToScreenPoint(targetPart.Position)
+    if not onScreen then return end
+    
+    local mouse = UserInputService:GetMouseLocation()
+    local delta = (Vector2.new(screenPos.X, screenPos.Y) - mouse)
+    if delta.Magnitude <= AIMBOT_FOV then
+        -- 这里不能直接移动鼠标（Roblox 安全限制）
+        -- 但你可以用远程调用或修改 Camera CFrame（需要权限）
+    end
+end
+
+-- === 执行攻击 === --
+local function performAttack()
+    local now = tick()
+    if now - lastFireTime < AUTO_FIRE_DELAY then return end
+    
+    local weapon = getWeapon()
+    if not weapon then return end
+    
+    local remote = weapon:FindFirstChild("RemoteEvent")
+    if not remote then return end
+    
+    local zombies = getZombies()
+    local nearestZombie = nil
+    local minDistance = math.huge
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    
+    for _, zombie in pairs(zombies) do
+        local root = zombie:FindFirstChild("HumanoidRootPart")
+        if root then
+            local distance = (root.Position - character.HumanoidRootPart.Position).Magnitude
+            if distance <= AUTO_FARM_RANGE and distance < minDistance then
+                minDistance = distance
+                nearestZombie = zombie
+            end
+        end
+    end
+    
+    if not nearestZombie then return end
+    
+    -- 自动瞄准头部
+    local head = nearestZombie:FindFirstChild("Head")
+    if head then
+        aimAt(head)
+    end
+    
+    -- 执行攻击
+    if weapon:GetAttribute("Melee") then
+        remote:FireServer("Swing")
+        task.wait(0.1)
+        remote:FireServer("FeedbackStun", nearestZombie, head.Position)
+    else
+        remote:FireServer("Shoot")
+    end
+    
+    lastFireTime = now
+end
+
+-- === 透视显示 === --
+local function createZombieTag(zombie)
+    if zombieTags[zombie] then return end
+    
+    local tag = Instance.new("BillboardGui")
+    tag.Name = "ZombieTag"
+    tag.Size = UDim2.new(0, 200, 0, 50)
+    tag.StudsOffset = Vector3.new(0, 3, 0)
+    tag.AlwaysOnTop = true
+    tag.Adornee = zombie:FindFirstChild("HumanoidRootPart") or zombie:FindFirstChild("Head")
+    tag.MaxDistance = 50
+    tag.Parent = zombie
+    
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 0.5
+    frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    frame.BorderSizePixel = 2
+    frame.BorderColor3 = Color3.fromRGB(255, 0, 0)
+    frame.Parent = tag
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Text = "僵尸"
+    nameLabel.Size = UDim2.new(1, 0, 0, 20)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextSize = 14
+    nameLabel.Parent = frame
+    
+    zombieTags[zombie] = tag
+end
+
+-- === 更新所有标签 === --
+local function updateZombieTags()
+    for zombie, tag in pairs(zombieTags) do
+        if not zombie.Parent then
+            tag:Destroy()
+            zombieTags[zombie] = nil
+        end
+    end
+    
+    local zombies = getZombies()
+    for _, zombie in pairs(zombies) do
+        if not zombieTags[zombie] then
+            createZombieTag(zombie)
+        end
+    end
+end
+
+-- === 启动全自动 === --
+local function startAutoFarming()
+    if autoFarmingConnection then return end
+    
+    autoFarmingConnection = RunService.Heartbeat:Connect(function()
+        performAttack()
+        updateZombieTags()
+    end)
+end
+
+-- === 停止全自动 === --
+local function stopAutoFarming()
+    if autoFarmingConnection then
+        autoFarmingConnection:Disconnect()
+        autoFarmingConnection = nil
+    end
+end
+
+-- === 清理资源 === --
+player.CharacterAdded:Connect(function()
+    stopAutoFarming()
+    for _, tag in pairs(zombieTags) do
+        tag:Destroy()
+    end
+    zombieTags = {}
+end)
+
+-- === 创建界面 === --
+local toggleButton = createToggleButton()
+
+-- === 初始化 === --
+print("全自动猎杀系统已加载！按 F 键或点击屏幕按钮切换。")
