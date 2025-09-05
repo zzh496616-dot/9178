@@ -1,0 +1,128 @@
+-- === [G&B 手机轻量辅助] 僵尸ESP + 瞄准辅助 + 快速换弹 === --
+-- 仅本地视觉 | 不改服务器数据 | 测试用
+
+local plr = game.Players.LocalPlayer
+local cam = workspace.CurrentCamera
+local touch = game:GetService("UserInputService")
+
+-- 配置
+local cfg = { esp = true, aim = true, aimR = 50, aimS = 0.3, fastReload = true }
+
+-- 创建GUI
+local function makeGui()
+    local s = Instance.new("ScreenGui", plr:WaitForChild("PlayerGui"))
+    local f = Instance.new("Frame", s)
+    f.Size = UDim2.new(0, 200, 0, 120)
+    f.Position = UDim2.new(0.8, 0, 0.1, 0)
+    f.BackgroundTransparency = 0.2
+    f.BackgroundColor3 = Color3.new(0, 0, 0)
+    f.BorderSizePixel = 2
+    f.BorderColor3 = Color3.new(0, 0.5, 1)
+
+    local t = Instance.new("TextLabel", f)
+    t.Text = "G&B Helper"
+    t.Size = UDim2.new(1, 0, 0, 30)
+    t.BackgroundTransparency = 1
+    t.TextColor3 = Color3.new(0, 0.8, 1)
+
+    local b1 = Instance.new("TextButton", f)
+    b1.Text = "ESP: ON"
+    b1.Size = UDim2.new(1, 0, 0, 25)
+    b1.Position = UDim2.new(0, 0, 0, 30)
+    b1.BackgroundTransparency = 0.3
+    b1.TextColor3 = Color3.new(0, 1, 0)
+    b1.MouseButton1Click:connect(function()
+        cfg.esp = not cfg.esp
+        b1.Text = "ESP: " .. (cfg.esp and "ON" or "OFF")
+    end)
+
+    local b2 = Instance.new("TextButton", f)
+    b2.Text = "Aim: ON"
+    b2.Size = UDim2.new(1, 0, 0, 25)
+    b2.Position = UDim2.new(0, 0, 0, 55)
+    b2.BackgroundTransparency = 0.3
+    b2.TextColor3 = Color3.new(0, 1, 0)
+    b2.MouseButton1Click:connect(function()
+        cfg.aim = not cfg.aim
+        b2.Text = "Aim: " .. (cfg.aim and "ON" or "OFF")
+    end)
+end
+
+-- ESP
+local function esp()
+    for _, v in next, workspace:GetChildren() do
+        if v:FindFirstChild("Humanoid") and v.Name:find("Zombie") and not v:FindFirstChild("BillboardGui") then
+            local g = Instance.new("BillboardGui", v)
+            g.AlwaysOnTop = true
+            g.Size = UDim2.new(0, 200, 0, 50)
+            g.StudsOffset = Vector3.new(0, 3, 0)
+            local t = Instance.new("TextLabel", g)
+            t.BackgroundTransparency = 1
+            t.Size = UDim2.new(1, 0, 1, 0)
+            t.TextScaled = true
+            t.TextColor3 = Color3.new(0, 1, 0)
+            t.Text = v.Name .. "\nHP: " .. v.Humanoid.Health
+            spawn(function()
+                while cfg.esp and v and v.Parent do
+                    t.Text = "Zombie\nHP: " .. math.floor(v.Humanoid.Health) .. "\n" .. math.floor((v.HumanoidRootPart.Position - cam.Focus.Position).Magnitude) .. "m"
+                    wait(0.1)
+                end
+            end)
+        end
+    end
+end
+
+-- 快速换弹
+spawn(function()
+    while wait(0.1) do
+        if not cfg.fastReload then
+            continue
+        end
+        local chr = plr.Character
+        if not chr then
+            continue
+        end
+        local tool = chr:FindFirstChildWhichIsA("Tool")
+        if not tool then
+            continue
+        end
+        local mod = require(tool:FindFirstChild("Gun")) or require(tool:FindFirstChild("Melee"))
+        if mod.ReloadValue and mod.ReloadValue.Value == false then
+            mod.CanFire = true -- 仅重置客户端状态
+        end
+    end
+end)
+
+-- 瞄准辅助
+touch.InputChanged:connect(function(input)
+    if not cfg.aim then
+        return
+    end
+    if input.UserInputType == Enum.UserInputType.Touch then
+        local closest = nil
+        local dist = cfg.aimR
+        for _, v in next, workspace:GetChildren() do
+            if v:FindFirstChild("Humanoid") and v.Name:find("Zombie") and v:FindFirstChild("HumanoidRootPart") then
+                local pos, onscreen = cam:WorldToViewportPoint(v.HumanoidRootPart.Position)
+                local mdist = (Vector2.new(pos.X, pos.Y) - Vector2.new(input.Position.X, input.Position.Y)).magnitude
+                if mdist < dist and onscreen then
+                    dist = mdist
+                    closest = v
+                end
+            end
+        end
+        if closest then
+            local targetPos = cam:WorldToViewportPoint(closest.HumanoidRootPart.Position + Vector3.new(0, 1, 0))
+            -- 模拟平滑移动（仅视觉）
+            local dx = (targetPos.X - input.Position.X) * cfg.aimS
+            local dy = (targetPos.Y - input.Position.Y) * cfg.aimS
+        end
+    end
+end)
+
+-- 初始化
+makeGui()
+while true do
+    esp()
+    wait(1)
+end
